@@ -1,0 +1,10 @@
+{
+  "functions": {
+    "api/[route]": {
+      "runtime": "nodejs18"
+    }
+  },
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/static/$1" }
+  ]
+}
