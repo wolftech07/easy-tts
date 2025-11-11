@@ -3,32 +3,48 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Easy TTS - Edge Text-to-Speech</title>
+  <title>Easy TTS - Smart Text-to-Speech</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <div class="container">
-    <h1>Easy TTS</h1>
-    <p class="subtitle">Using Microsoft Edge Text-to-Speech</p>
+    <h1>🎤 Easy TTS</h1>
+    <p class="subtitle">Smart multi-service text-to-speech that works everywhere</p>
 
     <div class="controls">
-      <label for="voice">Voice:</label>
-      <select id="voice"></select>
-
-      <label for="speed">Speed:</label>
-      <input type="range" id="speed" min="0.5" max="2.0" step="0.1" value="1.0">
-      <span id="speedValue">1.00</span>
-
-      <label for="text">Text:</label>
-      <textarea id="text" rows="5" placeholder="Enter text to convert to speech..."></textarea>
-
-      <div class="buttons">
-        <button id="play" class="primary">Play</button>
-        <button id="stop">Stop</button>
-        <button id="download">Download MP3</button>
+      <div class="control-group">
+        <label for="voice">Voice:</label>
+        <select id="voice"></select>
       </div>
 
-      <div id="status"></div>
+      <div class="control-group">
+        <label for="speed">Speed: <span id="speedValue">1.00</span>x</label>
+        <input type="range" id="speed" min="0.5" max="2.0" step="0.1" value="1.0">
+      </div>
+
+      <div class="control-group">
+        <label for="text">Your Text:</label>
+        <textarea id="text" rows="6" placeholder="Enter text to convert to speech..."></textarea>
+      </div>
+
+      <div class="buttons">
+        <button id="play" class="btn btn-primary">
+          <span class="btn-icon">▶️</span> Play
+        </button>
+        <button id="stop" class="btn btn-secondary">
+          <span class="btn-icon">⏹️</span> Stop
+        </button>
+        <button id="download" class="btn btn-secondary">
+          <span class="btn-icon">📥</span> Download
+        </button>
+      </div>
+
+      <div id="status" class="status-box"></div>
+    </div>
+
+    <div class="info-box">
+      <p><strong>�� Works on:</strong> Chrome, Firefox, Safari, Edge & more</p>
+      <p><strong>🔄 Auto-fallback:</strong> Tries Edge TTS → VoiceRSS → Google Translate → Web Speech API</p>
     </div>
   </div>
   <script src="app.js"></script>

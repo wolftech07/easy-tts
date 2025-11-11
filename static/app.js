@@ -1,4 +1,4 @@
-// Frontend logic for Edge TTS
+// Frontend logic for Easy TTS - Multi-Service with Auto-Fallback
 (() => {
   const voiceEl = document.getElementById('voice');
   const speedEl = document.getElementById('speed');
@@ -10,8 +10,8 @@
   const statusEl = document.getElementById('status');
 
   let currentAudio = null;
+  let currentMethod = null;
 
-  // Available Edge TTS voices (English only)
   const EDGE_VOICES = [
     { id: 'en-US-JennyMultilingualNeural', name: 'Jenny (US)', gender: 'Female' },
     { id: 'en-US-ChristopherNeural', name: 'Christopher (US)', gender: 'Male' },
@@ -21,25 +21,26 @@
     { id: 'en-AU-WilliamNeural', name: 'William (AU)', gender: 'Male' }
   ];
 
+  const BROWSER_SUPPORT = { webSpeechApi: 'speechSynthesis' in window };
+
   function setStatus(msg, isError) {
     statusEl.style.whiteSpace = 'pre-wrap';
     statusEl.style.textAlign = 'left';
     statusEl.style.fontFamily = 'monospace';
-    statusEl.style.padding = '10px';
-    statusEl.style.backgroundColor = isError ? '#fff0f0' : '#f0f0f0';
-    statusEl.style.border = isError ? '1px solid #ffb4b4' : '1px solid #ddd';
-    statusEl.style.borderRadius = '4px';
-    statusEl.style.color = isError ? '#d63031' : '#2d3436';
+    statusEl.style.padding = '12px';
+    statusEl.style.backgroundColor = isError ? '#ffe8e8' : '#e8f4f8';
+    statusEl.style.border = isError ? '2px solid #ff6b6b' : '2px solid #5dade2';
+    statusEl.style.borderRadius = '6px';
+    statusEl.style.color = isError ? '#c92a2a' : '#0c5460';
     statusEl.textContent = msg;
   }
 
-  // Populate voices dropdown
   function populateVoices() {
     voiceEl.innerHTML = '';
     EDGE_VOICES.forEach(v => {
       const opt = document.createElement('option');
       opt.value = v.id;
-      opt.textContent = `${v.name}`;
+      opt.textContent = v.name;
       voiceEl.appendChild(opt);
     });
   }
@@ -47,12 +48,11 @@
   function stopAudioPlayback() {
     if (currentAudio) {
       currentAudio.pause();
-      try { currentAudio.src = ''; } catch {}
+      try { currentAudio.src = ''; } catch (e) {}
       currentAudio = null;
     }
   }
 
-  // Initialize voices
   populateVoices();
 
   speedEl.addEventListener('input', () => {
@@ -61,156 +61,126 @@
 
   stopBtn.addEventListener('click', () => {
     stopAudioPlayback();
-    setStatus('Stopped.');
+    setStatus('⏹️ Stopped.');
   });
 
-  // Function to safely encode text for SSML
   function escapeXml(unsafe) {
     return unsafe.replace(/[<>&'"]/g, c => {
       switch (c) {
         case '<': return '&lt;';
         case '>': return '&gt;';
         case '&': return '&amp;';
-        case '\'': return '&apos;';
+        case "'": return '&apos;';
         case '"': return '&quot;';
       }
     });
   }
 
-  // Function to generate speech using Edge TTS
-  async function generateSpeech(text, voiceId, speed) {
-    // Create SSML with pitch and rate adjustments
-    const ssml = `
-      <speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-US">
-        <voice name="${voiceId}">
-          <prosody rate="${speed}">
-            ${escapeXml(text)}
-          </prosody>
-        </voice>
-      </speak>`;
-
-    // Modern headers that work with Edge TTS
+  async function generateSpeechEdgeTts(text, voiceId, speed) {
+    const ssml = `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-US"><voice name="${voiceId}"><prosody rate="${speed}">${escapeXml(text)}</prosody></voice></speak>`;
     const headers = {
       'Content-Type': 'application/ssml+xml',
       'X-Microsoft-OutputFormat': 'audio-24khz-48kbitrate-mono-mp3',
       'User-Agent': 'Edge-TTS-Client'
     };
 
-    // Try multiple connection strategies
     const strategies = [
-      {
-        name: 'Direct Connection',
-        url: 'https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1',
-        headers: {
-          ...headers,
-          'Origin': 'https://speech.platform.bing.com'
-        }
-      },
-      {
-        name: 'TTS Service',
-        url: 'https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=6A5AA1D4EAFF4E9FB37E23D68491D6F4',
-        headers: {
-          ...headers,
-          'Origin': 'chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold'
-        }
-      }
+      { url: 'https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1', headers: { ...headers, 'Origin': 'https://speech.platform.bing.com' } },
+      { url: 'https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=6A5AA1D4EAFF4E9FB37E23D68491D6F4', headers: { ...headers, 'Origin': 'chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold' } }
     ];
 
     let lastError;
     for (const strategy of strategies) {
       try {
-        setStatus(`Trying ${strategy.name}...`);
-        const response = await fetch(strategy.url, {
-          method: 'POST',
-          headers: strategy.headers,
-          body: ssml
-        });
-
-        if (!response.ok) {
-          throw new Error(`Server returned ${response.status}: ${await response.text()}`);
-        }
-
+        const response = await fetch(strategy.url, { method: 'POST', headers: strategy.headers, body: ssml, mode: 'cors' });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const blob = await response.blob();
-        if (blob.size === 0) {
-          throw new Error('Received empty audio data');
-        }
-
-        setStatus(`Success with ${strategy.name}! Processing audio...`);
+        if (blob.size === 0) throw new Error('Empty response');
+        currentMethod = 'Edge TTS';
         return blob;
       } catch (err) {
-        console.warn(`${strategy.name} failed:`, err);
         lastError = err;
-        setStatus(`${strategy.name} failed: ${err.message}`, true);
       }
     }
-
-    throw new Error(`All connection strategies failed. Last error: ${lastError?.message}`);
+    throw new Error(`Edge TTS: ${lastError?.message}`);
   }
 
-  // Function to generate speech using Web Speech API as fallback
-  async function generateSpeechFallback(text, voiceId, speed) {
-    return new Promise((resolve, reject) => {
-      if (!('speechSynthesis' in window)) {
-        reject(new Error('Web Speech API is not supported in this browser'));
-        return;
-      }
-
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.rate = speed;
-      
-      const voices = window.speechSynthesis.getVoices();
-      if (!voices || voices.length === 0) {
-        reject(new Error('No speech voices available in this browser'));
-        return;
-      }
-
-      let voice = voices.find(v => v.name.includes(voiceId)) || 
-                 voices.find(v => v.lang === 'en-US' && v.default) ||
-                 voices[0];
-
-      if (voice) {
-        utterance.voice = voice;
-        setStatus([
-          'Using fallback voice:',
-          `- Name: ${voice.name}`,
-          `- Language: ${voice.lang}`,
-          `- Quality: ${voice.localService ? 'Local' : 'Network'}`,
-          '(Edge TTS was not available)'
-        ].join('\n'));
-      }
-
-      utterance.onend = () => resolve();
-      utterance.onerror = (e) => reject(new Error(`Speech synthesis failed: ${e.error}`));
-      window.speechSynthesis.speak(utterance);
-    });
+  async function generateSpeechVoiceRss(text, speed) {
+    try {
+      const url = `https://api.voicerss.org/?key=a8f4e9e0fc0b4e9f&hl=en-us&r=${Math.round((speed - 1) * 10)}&c=mp3&f=44khz_16bit_mono&src=${encodeURIComponent(text)}`;
+      const response = await fetch(url, { mode: 'cors' });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const blob = await response.blob();
+      if (blob.size === 0 || blob.type.includes('json')) throw new Error('Invalid response');
+      currentMethod = 'VoiceRSS';
+      return blob;
+    } catch (err) {
+      throw new Error(`VoiceRSS: ${err.message}`);
+    }
   }
 
-  // Play button handler
+  async function generateSpeechGoogle(text, speed) {
+    try {
+      const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=en&client=tw-ob`;
+      const response = await fetch(url, { mode: 'cors' });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const blob = await response.blob();
+      if (blob.size === 0) throw new Error('Empty response');
+      currentMethod = 'Google Translate';
+      return blob;
+    } catch (err) {
+      throw new Error(`Google Translate: ${err.message}`);
+    }
+  }
+
+  async function generateSpeech(text, voiceId, speed) {
+    const methods = [
+      () => generateSpeechEdgeTts(text, voiceId, speed),
+      () => generateSpeechVoiceRss(text, speed),
+      () => generateSpeechGoogle(text, speed)
+    ];
+
+    let errors = [];
+    for (let i = 0; i < methods.length; i++) {
+      try {
+        setStatus(`🔄 Trying service ${i + 1}/3...`);
+        return await methods[i]();
+      } catch (err) {
+        console.warn(err);
+        errors.push(err.message);
+      }
+    }
+    throw new Error(`All services failed: ${errors.join(' | ')}`);
+  }
+
   playBtn.addEventListener('click', async () => {
     const text = textEl.value.trim();
     if (!text) {
-      setStatus('Please enter some text first.', true);
+      setStatus('❌ Please enter some text first.', true);
       return;
+    }
+
+    if (text.length > 500) {
+      setStatus(`⚠️ Text is long (${text.length} chars). This may take a moment...`, false);
     }
 
     const voiceId = voiceEl.value;
     const speed = Number(speedEl.value) || 1;
 
     stopAudioPlayback();
-    setStatus('Generating speech...');
+    setStatus('🎤 Finding best TTS service for your browser...');
 
     try {
-      // Try Edge TTS first
       const audioBlob = await generateSpeech(text, voiceId, speed);
       const audioUrl = URL.createObjectURL(audioBlob);
       const audio = new Audio(audioUrl);
       
       currentAudio = audio;
-      setStatus('Playing high-quality Edge TTS audio...');
+      setStatus(`▶️ Playing with ${currentMethod}...`);
       
       audio.onended = () => {
-        setStatus('Playback completed successfully.');
-        try { URL.revokeObjectURL(audioUrl); } catch {}
+        setStatus(`✅ Done! Used: ${currentMethod}`);
+        try { URL.revokeObjectURL(audioUrl); } catch (e) {}
         currentAudio = null;
       };
       
@@ -220,52 +190,49 @@
       };
       
       await audio.play();
-
     } catch (err) {
-      console.error('Edge TTS failed:', err);
-      setStatus('Edge TTS failed, trying browser fallback...', true);
+      console.error('All services failed:', err);
 
-      try {
-        await generateSpeechFallback(text, voiceId, speed);
-        setStatus('Playback completed using fallback voice.');
-      } catch (fallbackErr) {
-        const errorMessage = [
-          'All speech methods failed.',
-          '',
-          'Edge TTS error:',
-          err.message,
-          '',
-          'Fallback error:',
-          fallbackErr.message,
-          '',
-          'Browser Information:',
-          `- Type: ${navigator.userAgent.includes('Chrome') ? 'Chrome' : 'Other'}`,
-          `- Web Speech API: ${('speechSynthesis' in window) ? 'Available' : 'Not Available'}`,
-          '',
-          'Troubleshooting:',
-          '1. Check your internet connection',
-          '2. Try shorter text (max 200 characters recommended)',
-          '3. If using Codespaces, try incognito mode or local environment',
-          '4. Disable VPN or proxy if active'
-        ].join('\n');
+      if (BROWSER_SUPPORT.webSpeechApi) {
+        try {
+          setStatus('🎙️ Using browser voice (Web Speech API)...');
+          const utterance = new SpeechSynthesisUtterance(text);
+          utterance.rate = speed;
+          
+          const voices = window.speechSynthesis.getVoices();
+          if (voices && voices.length > 0) {
+            const voice = voices.find(v => v.lang === 'en-US') || voices[0];
+            utterance.voice = voice;
+          }
 
-        setStatus(errorMessage, true);
+          window.speechSynthesis.speak(utterance);
+          currentMethod = 'Web Speech API';
+          setStatus('✅ Playing with Web Speech API');
+          
+          utterance.onend = () => {
+            setStatus('✅ Playback completed');
+            currentAudio = null;
+          };
+        } catch (fallbackErr) {
+          setStatus(`❌ Error: ${err.message}\n\nPlease check your connection and try again.`, true);
+        }
+      } else {
+        setStatus(`❌ All TTS services unavailable:\n${err.message}`, true);
       }
     }
   });
 
-  // Download button handler
   downloadBtn.addEventListener('click', async () => {
     const text = textEl.value.trim();
     if (!text) {
-      setStatus('Please enter some text to download.', true);
+      setStatus('❌ Please enter some text to download.', true);
       return;
     }
 
     const voiceId = voiceEl.value;
     const speed = Number(speedEl.value) || 1;
 
-    setStatus('Generating audio for download...');
+    setStatus('📥 Generating audio for download...');
 
     try {
       const audioBlob = await generateSpeech(text, voiceId, speed);
@@ -276,23 +243,13 @@
       document.body.appendChild(a);
       a.click();
       a.remove();
-      setTimeout(() => { try { URL.revokeObjectURL(downloadUrl); } catch {} }, 5000);
-      setStatus('Download started.');
+      setTimeout(() => { try { URL.revokeObjectURL(downloadUrl); } catch (e) {} }, 5000);
+      setStatus(`✅ Download started! (Used: ${currentMethod})`);
     } catch (err) {
       console.error('Download error:', err);
-      setStatus([
-        'Download failed.',
-        err.message,
-        '',
-        'Troubleshooting:',
-        '1. Try shorter text',
-        '2. Check your internet connection',
-        '3. Try downloading in a local environment',
-        '4. Use a different browser (Edge recommended)'
-      ].join('\n'), true);
+      setStatus(`❌ Download failed.\n${err.message}\n\nTry:\n• Shorter text (max 500 characters)\n• Check your internet connection\n• Use a modern browser (Chrome, Firefox, Safari, Edge)`, true);
     }
   });
 
-  // Initialize speed display
   speedValueEl.textContent = Number(speedEl.value).toFixed(2);
 })();
