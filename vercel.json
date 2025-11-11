@@ -1,10 +1,10 @@
 {
-  "functions": {
-    "api/[route]": {
-      "runtime": "nodejs18"
+  "buildCommand": "echo 'Static site - no build needed'",
+  "outputDirectory": "static",
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "/static/$1"
     }
-  },
-  "rewrites": [
-    { "source": "/(.*)", "destination": "/static/$1" }
   ]
 }
